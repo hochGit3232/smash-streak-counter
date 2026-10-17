@@ -11,7 +11,7 @@
 
 ## ダウンロード
 
-右側の **[Releases](../../releases)** から最新版の `smash_streak_counter.zip` をダウンロードして、好きな場所に展開してください。
+**[こちらのリリースページ](https://github.com/hochGit3232/smash-streak-counter/releases/latest)** から最新版の `smash_streak_counter.zip` をダウンロードして、好きな場所に展開してください。
 
 ## 必要なもの
 
