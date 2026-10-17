@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>連勝カウンター操作</title>
+<style>
+  body { margin: 0; padding: 12px; background: #1e1f26; color: #eee; font-family: "Yu Gothic UI", "Meiryo", sans-serif; }
+  .num { font-size: 40px; font-weight: 900; color: #ffd84a; }
+  .rec { font-size: 15px; margin-top: 2px; }
+  .row { display: flex; gap: 6px; margin: 8px 0; }
+  button { flex: 1; padding: 10px 4px; font-size: 15px; border: 0; border-radius: 6px; background: #3a3c4a; color: #fff; cursor: pointer; }
+  button:hover { background: #50536a; }
+  .win { background: #8a6d1d; }
+  .lose { background: #2b4a8a; }
+  .small button { padding: 6px 4px; font-size: 12px; }
+  .danger { background: #6a2424; }
+  .label { font-size: 11px; opacity: .6; margin-top: 10px; }
+  .meta { font-size: 12px; opacity: .75; line-height: 1.6; margin-top: 8px; word-break: break-all; }
+</style>
+</head>
+<body>
+<div><span class="num" id="num">-</span> 連勝（最高 <span id="best">-</span>）</div>
+<div class="rec" id="rec">-</div>
+
+<div class="label">判定ミスの修正（戦績にも反映）</div>
+<div class="row">
+  <button class="win" onclick="api('win')">勝ちを記録</button>
+  <button class="lose" onclick="api('lose')">負けを記録</button>
+  <button onclick="api('undo')">直前を取消</button>
+</div>
+
+<div class="label">連勝数だけ変更（戦績はそのまま）</div>
+<div class="row small">
+  <button onclick="api('dec')">−1</button>
+  <button onclick="api('inc')">＋1</button>
+  <button onclick="api('reset')">連勝リセット</button>
+  <button class="danger" onclick="if (confirm('直近の戦績をすべて消しますか？')) api('clear_history')">戦績クリア</button>
+</div>
+
+<div class="meta">名前: <span id="name">-</span><br>最終判定: <span id="ev">-</span></div>
+<script>
+function show(s) {
+  document.getElementById('num').textContent = s.streak;
+  document.getElementById('best').textContent = s.best;
+  const r = s.recent;
+  document.getElementById('rec').textContent = r.games
+    ? `直近${r.games}戦 ${r.wins}勝${r.losses}敗（勝率${Math.round(r.wins / r.games * 100)}%）`
+    : '直近の戦績 なし';
+  document.getElementById('name').textContent = s.name || '(未取得)';
+  document.getElementById('ev').textContent = s.event || '-';
+}
+async function api(a) { show(await (await fetch('/api/' + a)).json()); }
+async function tick() { try { show(await (await fetch('/api/state', { cache: 'no-store' })).json()); } catch (e) {} }
+tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>

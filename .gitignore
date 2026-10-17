@@ -1,0 +1,13 @@
+# 個人設定・記録 (OBSのパスワードやネームタグが入るので公開しない)
+config.json
+state.json
+log.txt
+streak.txt
+
+# Python の実行環境
+.venv/
+__pycache__/
+
+# --test で保存される切り抜き画像
+rank_area_*.png
+nametag_area.png
