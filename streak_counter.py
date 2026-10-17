@@ -160,7 +160,12 @@ class State:
 # ---------------------------------------------------------------- OCR
 _engine = OcrEngine.try_create_from_language(Language("ja"))
 if _engine is None:
-    sys.exit("Windowsの日本語OCRが見つかりません。設定 > 時刻と言語 > 言語 で日本語を追加してください。")
+    sys.exit(
+        "Windowsの日本語OCRが見つかりません。\n"
+        "README.txt の「日本語OCRの追加」の手順で追加してから、もう一度起動してください。\n"
+        "（管理者の PowerShell で次の1行を実行しても追加できます）\n"
+        '  Add-WindowsCapability -Online -Name "Language.OCR~~~ja-JP~0.0.1.0"'
+    )
 
 
 def ocr(img: Image.Image):
@@ -220,24 +225,25 @@ def similarity(a, b):
 
 
 # ---------------------------------------------------------------- 画面判定
-RESULT_KEYWORDS = ("世界戦闘力", "撃墜", "落下", "自滅")
-LOBBY_KEYWORDS = ("ENTRY", "募集中")
 
 
-def is_result_screen(joined, top_lines):
-    """OCRが崩れても拾えるよう、複数の手がかりのどれかで結果画面と判断する"""
-    if any(k in joined for k in ("戦闘", "世界", "リプレイ", "全滅")):
+def is_result_screen(img: Image.Image, joined):
+    """
+    結果画面にしか出ないものだけで判断する。
+    (「世界戦闘力」はオンラインメニューやキャラ選択にも出るので使わない)
+      - 左カードの「全滅/撃墜/落下/自滅」の見出し
+      - 右下の「リプレイを保存」
+      - A を押した人のカードの「READY FOR THE NEXT BATTLE」
+    """
+    W, H = img.size
+    labels = "".join(t for t, _ in ocr_scaled(img, (int(W * 0.13), int(H * 0.55), int(W * 0.24), int(H * 0.92)), 3))
+    if len(set(labels) & set("全滅撃墜落下自")) >= 3:
         return True
-    if "NEXTBATTLE" in norm(joined).upper():
+    replay = "".join(t for t, _ in ocr_scaled(img, (int(W * 0.84), int(H * 0.92), W, H), 3))
+    if any(k in replay for k in ("リプレイ", "プレイを", "保存")):
         return True
-    if sum(k in joined for k in RESULT_KEYWORDS) >= 2:
-        return True
-    # 世界戦闘力の数値 (例: 13,833,863 → 7〜9桁)
-    for t, _ in top_lines:
-        digits = re.sub(r"[,.\s]", "", t)
-        if re.fullmatch(r"\D?\d{7,9}", digits):
-            return True
-    return False
+    n = norm(joined).upper()
+    return "NEXTBATTLE" in n or "READYFOR" in n
 
 
 def gold_ratio(img: Image.Image, box):
@@ -266,7 +272,7 @@ def analyze(img: Image.Image, cfg, debug_dir=None):
     if cfg.get("debug"):
         log("OCR:", texts, "| 上半分x2:", [t for t, _ in top_lines])
 
-    if is_result_screen(joined, top_lines):
+    if is_result_screen(img, joined):
         name = cfg.get("player_name", "")
         if not name:
             return {"screen": "result", "win": None, "reason": "名前未設定"}
@@ -307,7 +313,8 @@ def analyze(img: Image.Image, cfg, debug_dir=None):
             "match": round(best, 2),
         }
 
-    if any(k in joined.upper() for k in LOBBY_KEYWORDS):
+    # 対戦相手を待っている画面 (「対戦相手募集中」)。キャラ選択画面にも ENTRY! が出るので ENTRY では判断しない
+    if "募集中" in joined:
         # 左下の1P枠ネームタグ (アイコンの右側) を拡大してOCR
         box = (int(W * 0.108), int(H * 0.895), int(W * 0.255), int(H * 0.965))
         if debug_dir:
@@ -333,6 +340,7 @@ class Watcher:
         self.away = 0
         # ネームタグは1P枠から読むので、自分のカードは基本的に左 (1P)
         self.last_side = cfg.get("default_side", "left")
+        self.name_reads = []
         self.reset_episode()
 
     def reset_episode(self):
@@ -384,7 +392,9 @@ class Watcher:
 
         if scr == "lobby" and res.get("name") and self.cfg.get("auto_learn_name"):
             name = res["name"]
-            if name != self.cfg.get("player_name"):
+            # 読み間違い対策: 同じ名前を3回続けて読めたときだけ覚える
+            self.name_reads = (self.name_reads + [name])[-3:]
+            if len(self.name_reads) == 3 and len(set(self.name_reads)) == 1 and name != self.cfg.get("player_name"):
                 self.cfg["player_name"] = name
                 CONFIG_PATH.write_text(json.dumps(self.cfg, ensure_ascii=False, indent=2), encoding="utf-8")
                 log(f"ネームタグを取得: {name}")
