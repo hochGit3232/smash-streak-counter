@@ -1,0 +1,2 @@
+# start.bat は Windows の改行 (CRLF) でないと正しく動かない
+*.bat text eol=crlf
