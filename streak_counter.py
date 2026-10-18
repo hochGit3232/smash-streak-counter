@@ -37,6 +37,25 @@ BASE = Path(__file__).resolve().parent
 CONFIG_PATH = BASE / "config.json"
 STATE_PATH = BASE / "state.json"
 LOG_PATH = BASE / "log.txt"
+# キャラアイコン (任意)。ゲームの画像なので配布物には含めず、各自でフォルダに置いたときだけ使う
+ICON_DIR = BASE / "assets" / "fighters"
+ICON_MAP_PATH = BASE / "fighter_icons.json"
+
+
+def load_icon_map():
+    """日本語のキャラ名 → アイコンのURL。アイコンが無ければ空"""
+    if not ICON_MAP_PATH.is_file():
+        return {}
+    try:
+        raw = json.loads(ICON_MAP_PATH.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return {}
+    icons = {}
+    for name, rel in raw.items():
+        file = Path(str(rel)).name
+        if re.fullmatch(r"[a-z0-9_]+\.png", file) and (ICON_DIR / file).is_file():
+            icons[name] = f"/icons/{file}"
+    return icons
 
 
 def log(*args):
@@ -58,8 +77,10 @@ DEFAULT_CONFIG = {
     "auto_learn_name": True,
     "interval_sec": 0.5,
     "output_text": "streak.txt",
-    "text_format": "{streak}連勝",  # 使える値: {streak} {best} {wins} {losses} {games}
+    "text_format": "{streak}連勝",  # 使える値: {streak} {best} {wins} {losses} {games} {nemesis}
     "recent_count": 30,  # 直近何戦の勝敗を数えるか
+    "show_nemesis": True,  # 配信画面に「よく負けるキャラ」を出すか
+    "vs_threshold": 0.5,  # VS画面とみなす似ている度合い
     "http_port": 8765,
     "gold_ratio_threshold": 0.03,  # 順位エリア内の金色ピクセル割合がこれ以上なら1位
     "name_match_threshold": 0.6,
@@ -71,7 +92,8 @@ DEFAULT_CONFIG = {
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
     if CONFIG_PATH.exists():
-        cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8")))
+        # メモ帳などで BOM 付きで保存されても読めるように utf-8-sig で読む
+        cfg.update(json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig")))
     else:
         CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     return cfg
@@ -86,10 +108,13 @@ class State:
         self.streak = 0
         self.best = 0
         self.last_event = ""
-        # 1試合ごとの記録: {"r": "W"/"L", "t": 時刻, "prev": 記録前の連勝数}
+        # 1試合ごとの記録: {"r": "W"/"L", "t": 時刻, "prev": 記録前の連勝数, "o": 相手キャラ}
         self.history = []
+        self.icons = load_icon_map()
+        if self.icons:
+            log(f"キャラアイコンを読み込みました ({len(self.icons)}体)")
         if STATE_PATH.exists():
-            d = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+            d = json.loads(STATE_PATH.read_text(encoding="utf-8-sig"))
             self.streak, self.best = d.get("streak", 0), d.get("best", 0)
             self.history = d.get("history", [])
         self.save()
@@ -101,10 +126,13 @@ class State:
         w, l, n = self.recent()
         log(f"{event} -> {self.streak}連勝 / 直近{n}戦 {w}勝{l}敗")
 
-    def record(self, win, event):
-        """1試合の結果を記録 (勝ち: 連勝+1 / 負け: 連勝0)"""
+    def record(self, win, event, opponent=None):
+        """1試合の結果を記録 (勝ち: 連勝+1 / 負け: 連勝0)。opponent は相手のキャラ名"""
         with self.lock:
-            self.history.append({"r": "W" if win else "L", "t": time.strftime("%m/%d %H:%M"), "prev": self.streak})
+            entry = {"r": "W" if win else "L", "t": time.strftime("%m/%d %H:%M"), "prev": self.streak}
+            if opponent:
+                entry["o"] = opponent
+            self.history.append(entry)
             del self.history[:-self.HISTORY_MAX]
             self.streak = self.streak + 1 if win else 0
             self._changed(event)
@@ -135,12 +163,25 @@ class State:
         wins = sum(1 for g in games if g["r"] == "W")
         return wins, len(games) - wins, len(games)
 
+    def nemesis(self, top=3):
+        """直近 recent_count 戦で負けた回数が多い相手キャラ [(名前, 回数), ...]"""
+        counts = {}
+        for g in self.history[-int(self.cfg.get("recent_count", 30)):]:
+            if g["r"] == "L" and g.get("o"):
+                counts[g["o"]] = counts.get(g["o"], 0) + 1
+        # 回数が多い順、同じ回数なら最近負けた方を先に
+        order = {g.get("o"): i for i, g in enumerate(self.history)}
+        return sorted(counts.items(), key=lambda kv: (-kv[1], -order.get(kv[0], 0)))[:top]
+
     def save(self):
         STATE_PATH.write_text(
-            json.dumps({"streak": self.streak, "best": self.best, "history": self.history}), encoding="utf-8"
+            json.dumps({"streak": self.streak, "best": self.best, "history": self.history}, ensure_ascii=False),
+            encoding="utf-8",
         )
         w, l, n = self.recent()
-        text = self.cfg["text_format"].format(streak=self.streak, best=self.best, wins=w, losses=l, games=n)
+        nem = " / ".join(f"{k}×{v}" for k, v in self.nemesis()) or "なし"
+        text = self.cfg["text_format"].format(streak=self.streak, best=self.best, wins=w, losses=l, games=n,
+                                              nemesis=nem)
         (BASE / self.cfg["output_text"]).write_text(text, encoding="utf-8")
 
     def snapshot(self):
@@ -154,6 +195,8 @@ class State:
                 "recent": {"wins": w, "losses": l, "games": n, "size": int(self.cfg.get("recent_count", 30))},
                 # 直近の並び (古い→新しい)
                 "marks": "".join(g["r"] for g in self.history[-int(self.cfg.get("recent_count", 30)):]),
+                "nemesis": [{"name": k, "count": v, "icon": self.icons.get(k)} for k, v in self.nemesis()],
+                "show_nemesis": bool(self.cfg.get("show_nemesis", True)),
             }
 
 
@@ -168,8 +211,9 @@ if _engine is None:
     )
 
 
-def ocr(img: Image.Image):
+def ocr(img: Image.Image, engine=None):
     """[(text, (x, y, w, h)), ...] を行単位で返す。座標は img のピクセル。"""
+    engine = engine or _engine
     rgba = img.convert("RGBA")
     w, h = rgba.size
     writer = DataWriter()
@@ -179,7 +223,7 @@ def ocr(img: Image.Image):
     bmp = SoftwareBitmap.create_copy_from_buffer(writer.detach_buffer(), BitmapPixelFormat.BGRA8, w, h)
 
     async def run():
-        return await _engine.recognize_async(bmp)
+        return await engine.recognize_async(bmp)
 
     result = asyncio.run(run())
     lines = []
@@ -224,6 +268,60 @@ def similarity(a, b):
     return best
 
 
+# ---------------------------------------------------------------- 対戦相手のキャラ名
+# VS画面の読み取りは smash-match-timestamps と同じ方式 (上部帯の見本との比較 + 英語OCR + ファイター名リスト)
+from roster import ROSTER  # noqa: E402
+
+_engine_en = OcrEngine.try_create_from_language(Language("en-US")) or _engine
+_VS_T = np.asarray(Image.open(BASE / "vs_template.png").convert("L"), np.float32)[:, 130:]
+_VS_T -= _VS_T.mean()
+# VS画面の名前の位置 (画面比率): 左=1P / 右=2P
+VS_NAME_BOXES = {"left": (100 / 1920, 15 / 1080, 900 / 1920, 140 / 1080),
+                 "right": (1060 / 1920, 15 / 1080, 1880 / 1920, 140 / 1080)}
+# 結果画面カード左上のキャラ名の位置 (1on1)
+CARD_NAME_BOXES = {"left": (0.13, 0.02, 0.36, 0.19), "right": (0.54, 0.02, 0.77, 0.19)}
+
+
+def vs_score(img: Image.Image):
+    """VS画面の上部帯との似ている度合い (1に近いほどVS画面)。左上は配信のテロップが乗りやすいので比較しない"""
+    a = np.asarray(img.convert("L").resize((384, 216), Image.BILINEAR), np.float32)[:24, 130:]
+    a -= a.mean()
+    return float((_VS_T * a).sum() / np.sqrt((_VS_T * _VS_T).sum() * (a * a).sum() + 1e-9))
+
+
+def ascii_norm(s):
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().upper()
+    s = s.translate(str.maketrans("01", "OI"))
+    return re.sub(r"[^A-Z&]", "", s)
+
+
+_ALIASES = [(ascii_norm(alias), jp) for jp, names in ROSTER.items() for alias in names]
+
+
+def match_fighter(text):
+    """OCR文字列 → 日本語のファイター名 (見つからなければ None)"""
+    words = text.split()
+    spans = {ascii_norm(" ".join(words[i:j])) for i in range(len(words)) for j in range(i + 1, len(words) + 1)}
+    spans.discard("")
+    if not spans:
+        return None
+    score, jp = max((difflib.SequenceMatcher(None, t, a).ratio(), jp) for t in spans for a, jp in _ALIASES)
+    return jp if score >= 0.75 else None
+
+
+def read_fighter(img: Image.Image, box):
+    """box (画面比率) の白い大文字のキャラ名を読む"""
+    W, H = img.size
+    x0, y0, x1, y1 = box
+    crop = img.crop((int(x0 * W), int(y0 * H), int(x1 * W), int(y1 * H))).convert("L")
+    if crop.height < 120:
+        crop = crop.resize((round(crop.width * 120 / crop.height), 120), Image.BICUBIC)
+    a = np.asarray(crop)
+    # 白文字だけ抜き出して白地に黒文字にする
+    bw = Image.fromarray(np.where(a > 170, 0, 255).astype(np.uint8)).convert("RGB")
+    return match_fighter(" ".join(t for t, _ in ocr(bw, _engine_en)))
+
+
 # ---------------------------------------------------------------- 画面判定
 
 
@@ -263,6 +361,12 @@ def analyze(img: Image.Image, cfg, debug_dir=None):
       lobby : name=読み取ったネームタグ
     """
     W, H = img.size
+    # VS画面: 両者のキャラ名を読む (重いOCRの前に軽い比較で判定)
+    if vs_score(img) > cfg.get("vs_threshold", 0.5):
+        fighters = {side: read_fighter(img, box) for side, box in VS_NAME_BOXES.items()}
+        if any(fighters.values()):
+            return {"screen": "vs", "fighters": fighters}
+
     lines = ocr(img)
     # 小さい文字対策: 上半分を拡大してもう一度OCR
     top_lines = ocr_scaled(img, (0, 0, W, int(H * 0.45)), 2)
@@ -305,12 +409,16 @@ def analyze(img: Image.Image, cfg, debug_dir=None):
         if debug_dir:
             for k, b in bands.items():
                 img.crop(b).save(Path(debug_dir) / f"rank_area_{k}.png")
+        # カード左上のキャラ名 (VS画面を読み逃したときの予備)。READY になったカードは読めない
+        fighters = {side: (None if side == ready_side else read_fighter(img, box))
+                    for side, box in CARD_NAME_BOXES.items()}
         return {
             "screen": "result",
             "my_side": my_side,
             "ready_side": ready_side,
             "gold": gold,
             "match": round(best, 2),
+            "fighters": fighters,
         }
 
     # 対戦相手を待っている画面 (「対戦相手募集中」)。キャラ選択画面にも ENTRY! が出るので ENTRY では判断しない
@@ -341,6 +449,8 @@ class Watcher:
         # ネームタグは1P枠から読むので、自分のカードは基本的に左 (1P)
         self.last_side = cfg.get("default_side", "left")
         self.name_reads = []
+        self.vs_fighters = {}  # 直前のVS画面で読んだキャラ名 {"left": ..., "right": ...}
+        self.vs_used = True  # VS画面の結果をもう試合結果に使ったか
         self.reset_episode()
 
     def reset_episode(self):
@@ -348,6 +458,7 @@ class Watcher:
         self.side_votes = {"left": 0, "right": 0}  # 自分の名前が見えた側
         self.ready_votes = {"left": 0, "right": 0}  # READY カードが出た側
         self.gold_hits = {"left": 0, "right": 0}  # 金色の1が見えた側
+        self.card_fighters = {"left": {}, "right": {}}  # カードから読んだキャラ名ごとの回数
         self.result_frames = 0
 
     def frames(self, sec):
@@ -379,16 +490,34 @@ class Watcher:
             f"金色={self.gold_hits} 前回の自分側={self.last_side}"
         )
 
+    def opponent(self):
+        """対戦相手のキャラ名: 結果画面のカードで読めた名前 → だめならVS画面で読んだ名前"""
+        opp = "right" if self.last_side == "left" else "left"
+        votes = self.card_fighters[opp]
+        if votes:
+            return max(votes, key=votes.get)
+        if not self.vs_used:
+            return self.vs_fighters.get(opp)
+        return None
+
     def commit(self, win):
         self.in_result = True
         if any(self.side_votes.values()):
             self.last_side = max(self.side_votes, key=self.side_votes.get)
-        info = self.summary()
-        self.state.record(win, ("WIN " if win else "LOSE ") + info)
+        opp = self.opponent()
+        self.vs_used = True
+        info = f"相手={opp or '不明'} " + self.summary()
+        self.state.record(win, ("WIN " if win else "LOSE ") + info, opp)
 
     def feed(self, img):
         res = analyze(img, self.cfg)
         scr = res["screen"]
+
+        if scr == "vs":
+            if self.vs_used:  # 新しい試合のVS画面
+                self.vs_fighters, self.vs_used = {}, False
+                log("VS画面:", " vs ".join(f or "?" for f in res["fighters"].values()))
+            self.vs_fighters.update({k: v for k, v in res["fighters"].items() if v})
 
         if scr == "lobby" and res.get("name") and self.cfg.get("auto_learn_name"):
             name = res["name"]
@@ -415,6 +544,9 @@ class Watcher:
             for side, ratio in res["gold"].items():
                 if ratio >= thr:
                     self.gold_hits[side] += 1
+            for side, name in res["fighters"].items():
+                if name:
+                    self.card_fighters[side][name] = self.card_fighters[side].get(name, 0) + 1
             if self.cfg.get("debug"):
                 log(f"結果画面: 自分={res['my_side']}(一致{res['match']}) READY={res['ready_side']} 金色={res['gold']}")
             win = self.decide()
@@ -473,6 +605,22 @@ def start_http(cfg, state):
 
         def do_GET(self):
             p = self.path.split("?")[0]
+            if p.startswith("/icons/"):
+                # ファイル名だけを受け付ける (フォルダの外は読ませない)
+                file = p[len("/icons/"):]
+                path = ICON_DIR / file
+                if not re.fullmatch(r"[a-z0-9_]+\.png", file) or not path.is_file():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                data = path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=86400")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             if p in ("/", "/overlay"):
                 return self._send((BASE / "overlay.html").read_text(encoding="utf-8"), "text/html")
             if p == "/dock":

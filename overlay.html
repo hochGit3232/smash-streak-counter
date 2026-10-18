@@ -24,6 +24,11 @@
   .recent .w { color: #ffd84a; }
   .recent .l { color: #8fb8ff; }
   .recent .rate { opacity: .8; font-size: 16px; margin-left: 6px; }
+  .nemesis { font-size: 16px; font-weight: 700; margin-top: 4px; white-space: nowrap; display: flex; align-items: center; gap: 10px; }
+  .nemesis .label { color: #ff9a9a; }
+  .nemesis .f { display: inline-flex; align-items: center; gap: 2px; }
+  .nemesis img { width: 30px; height: 30px; object-fit: contain; filter: drop-shadow(0 1px 2px #000); }
+  .nemesis .n { opacity: .85; font-size: 15px; }
   .marks { display: flex; gap: 3px; margin-top: 6px; }
   .marks i { width: 9px; height: 9px; border-radius: 50%; display: block; box-shadow: 0 1px 2px #000; }
   .marks .W { background: #ffd84a; }
@@ -39,10 +44,30 @@
     <span class="best">最高 <span id="best">0</span></span>
   </div>
   <div class="recent" id="recent"></div>
+  <div class="nemesis" id="nemesis"></div>
   <div class="marks" id="marks"></div>
 </div>
 <script>
-let last = null;
+let last = null, lastNem = null;
+// キャラアイコン + ×回数。アイコンが無い(読み込めない)ときはキャラ名の文字で出す
+function fighterBadge(x) {
+  const f = document.createElement('span');
+  f.className = 'f';
+  if (x.icon) {
+    const img = document.createElement('img');
+    img.src = x.icon;
+    img.alt = img.title = x.name;
+    img.onerror = () => img.replaceWith(document.createTextNode(x.name));
+    f.append(img);
+  } else {
+    f.append(document.createTextNode(x.name));
+  }
+  const n = document.createElement('span');
+  n.className = 'n';
+  n.textContent = '×' + x.count;
+  f.append(n);
+  return f;
+}
 async function tick() {
   try {
     const s = await (await fetch('/api/state', { cache: 'no-store' })).json();
@@ -59,6 +84,16 @@ async function tick() {
         `<span class="rate">勝率${Math.round(r.wins / r.games * 100)}%</span>`
       : '直近の戦績 なし';
     document.getElementById('marks').innerHTML = [...s.marks].map(m => `<i class="${m}"></i>`).join('');
+    const nem = document.getElementById('nemesis');
+    nem.style.display = s.show_nemesis && s.nemesis.length ? '' : 'none';
+    const key = JSON.stringify(s.nemesis);
+    if (key !== lastNem) {  // 毎回作り直すと画像がちらつくので、変わったときだけ
+      lastNem = key;
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = '苦手';
+      nem.replaceChildren(label, ...s.nemesis.map(fighterBadge));
+    }
   } catch (e) {}
 }
 tick(); setInterval(tick, 500);

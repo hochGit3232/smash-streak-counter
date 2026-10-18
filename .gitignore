@@ -11,3 +11,10 @@ __pycache__/
 # --test で保存される切り抜き画像
 rank_area_*.png
 nametag_area.png
+
+# キャラアイコンの画像 (公開リポジトリには入れない。各自で assets/fighters/ に置く)
+assets/
+fighter_icons.js
+fighter_icons.csv
+manifest.json
+preview.html

@@ -21,6 +21,7 @@
 <body>
 <div><span class="num" id="num">-</span> 連勝（最高 <span id="best">-</span>）</div>
 <div class="rec" id="rec">-</div>
+<div class="rec" id="nem"></div>
 
 <div class="label">判定ミスの修正（戦績にも反映）</div>
 <div class="row">
@@ -46,6 +47,23 @@ function show(s) {
   document.getElementById('rec').textContent = r.games
     ? `直近${r.games}戦 ${r.wins}勝${r.losses}敗（勝率${Math.round(r.wins / r.games * 100)}%）`
     : '直近の戦績 なし';
+  const nem = document.getElementById('nem');
+  nem.replaceChildren(document.createTextNode('苦手：'));
+  if (!s.nemesis.length) nem.append(document.createTextNode('まだなし'));
+  s.nemesis.forEach((x, i) => {
+    if (i) nem.append(document.createTextNode('　'));
+    if (x.icon) {
+      const img = document.createElement('img');
+      img.src = x.icon;
+      img.alt = img.title = x.name;
+      img.style.cssText = 'width:22px;height:22px;object-fit:contain;vertical-align:middle';
+      img.onerror = () => img.replaceWith(document.createTextNode(x.name));
+      nem.append(img);
+    } else {
+      nem.append(document.createTextNode(x.name));
+    }
+    nem.append(document.createTextNode('×' + x.count));
+  });
   document.getElementById('name').textContent = s.name || '(未取得)';
   document.getElementById('ev').textContent = s.event || '-';
 }
