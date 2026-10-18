@@ -650,6 +650,8 @@ def start_http(cfg, state):
     srv = ThreadingHTTPServer(("127.0.0.1", cfg["http_port"]), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     print(f"オーバーレイ: http://localhost:{cfg['http_port']}/   操作パネル: http://localhost:{cfg['http_port']}/dock")
+    print("※ この黒い画面を閉じるとカウンターが止まります。配信中は開いたままにしてください。")
+    print("※ OBS にカウンターが表示されないときは、ブラウザソースのプロパティで「現在のページのキャッシュを更新」を押してください。")
 
 
 def main():
