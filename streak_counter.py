@@ -152,6 +152,12 @@ class State:
             self.streak = max(0, value)
             self._changed(event)
 
+    def reset_best(self):
+        """最高連勝数をリセット (今の連勝数から数え直す)"""
+        with self.lock:
+            self.best = self.streak
+            self._changed("最高連勝リセット")
+
     def clear_history(self):
         with self.lock:
             self.history = []
@@ -639,6 +645,8 @@ def start_http(cfg, state):
                 state.set(state.streak - 1, "手動 -1")
             elif p == "/api/reset":
                 state.set(0, "手動リセット")
+            elif p == "/api/reset_best":
+                state.reset_best()
             elif p == "/api/clear_history":
                 state.clear_history()
             else:

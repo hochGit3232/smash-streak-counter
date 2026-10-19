@@ -35,6 +35,11 @@
   <button onclick="api('dec')">−1</button>
   <button onclick="api('inc')">＋1</button>
   <button onclick="api('reset')">連勝リセット</button>
+</div>
+
+<div class="label">リセット（元に戻せません）</div>
+<div class="row small">
+  <button class="danger" onclick="if (confirm('最高連勝数をリセットしますか？（今の連勝数から数え直します）')) api('reset_best')">最高連勝リセット</button>
   <button class="danger" onclick="if (confirm('直近の戦績をすべて消しますか？')) api('clear_history')">戦績クリア</button>
 </div>
 
