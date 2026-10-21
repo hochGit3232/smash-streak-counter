@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -40,6 +41,25 @@ LOG_PATH = BASE / "log.txt"
 # キャラアイコン (任意)。ゲームの画像なので配布物には含めず、各自でフォルダに置いたときだけ使う
 ICON_DIR = BASE / "assets" / "fighters"
 ICON_MAP_PATH = BASE / "fighter_icons.json"
+
+
+SOUND_TYPES = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4"}
+# 操作パネルから切り替えられる設定 (これ以外は変更させない)
+TOGGLES = ("show_recent", "show_nemesis", "play_reset_sound")
+
+
+def sound_path(cfg):
+    """鳴らす音のファイル。無ければ None"""
+    name = str(cfg.get("reset_sound_file", "") or "")
+    if not name:
+        return None
+    p = Path(name)
+    p = p if p.is_absolute() else BASE / p
+    return p if p.suffix.lower() in SOUND_TYPES and p.is_file() else None
+
+
+def save_config(cfg):
+    CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_icon_map():
@@ -79,7 +99,11 @@ DEFAULT_CONFIG = {
     "output_text": "streak.txt",
     "text_format": "{streak}連勝",  # 使える値: {streak} {best} {wins} {losses} {games} {nemesis}
     "recent_count": 30,  # 直近何戦の勝敗を数えるか
+    "show_recent": True,  # 配信画面に「直近〇戦 〇勝〇敗」と勝敗の並びを出すか
     "show_nemesis": True,  # 配信画面に「よく負けるキャラ」を出すか
+    "play_reset_sound": False,  # 連勝が途切れて 0 になったときに音を鳴らすか
+    "reset_sound_file": "sounds/reset.mp3",  # 鳴らす音 (このフォルダからの場所。mp3 / wav / ogg / m4a)
+    "reset_sound_volume": 0.8,  # 音量 (0.0〜1.0)
     "vs_threshold": 0.5,  # VS画面とみなす似ている度合い
     "http_port": 8765,
     "gold_ratio_threshold": 0.03,  # 順位エリア内の金色ピクセル割合がこれ以上なら1位
@@ -110,6 +134,9 @@ class State:
         self.last_event = ""
         # 1試合ごとの記録: {"r": "W"/"L", "t": 時刻, "prev": 記録前の連勝数, "o": 相手キャラ}
         self.history = []
+        # 音を鳴らす合図: 増えたら配信画面 (overlay.html) が音を鳴らす
+        self.reset_seq = 0  # 連勝が途切れた回数
+        self.test_seq = 0  # 操作パネルの「音を試す」を押した回数
         self.icons = load_icon_map()
         if self.icons:
             log(f"キャラアイコンを読み込みました ({len(self.icons)}体)")
@@ -134,8 +161,14 @@ class State:
                 entry["o"] = opponent
             self.history.append(entry)
             del self.history[:-self.HISTORY_MAX]
+            if not win and self.streak > 0:  # 連勝が途切れた (1以上 → 0)
+                self.reset_seq += 1
             self.streak = self.streak + 1 if win else 0
             self._changed(event)
+
+    def test_sound(self):
+        with self.lock:
+            self.test_seq += 1
 
     def undo(self):
         """最後の1試合の記録を取り消し、連勝数も元に戻す"""
@@ -203,6 +236,14 @@ class State:
                 "marks": "".join(g["r"] for g in self.history[-int(self.cfg.get("recent_count", 30)):]),
                 "nemesis": [{"name": k, "count": v, "icon": self.icons.get(k)} for k, v in self.nemesis()],
                 "show_nemesis": bool(self.cfg.get("show_nemesis", True)),
+                "show_recent": bool(self.cfg.get("show_recent", True)),
+                "sound": {
+                    "enabled": bool(self.cfg.get("play_reset_sound", False)),
+                    "available": sound_path(self.cfg) is not None,
+                    "volume": max(0.0, min(1.0, float(self.cfg.get("reset_sound_volume", 0.8)))),
+                    "reset_seq": self.reset_seq,
+                    "test_seq": self.test_seq,
+                },
             }
 
 
@@ -627,6 +668,33 @@ def start_http(cfg, state):
                 self.end_headers()
                 self.wfile.write(data)
                 return
+            if p == "/sound":
+                # 設定で指定した音のファイルだけを返す
+                path = sound_path(cfg)
+                if path is None:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                data = path.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", SOUND_TYPES[path.suffix.lower()])
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            if p == "/api/option":
+                # 操作パネルのオン/オフ切り替え。決まった項目だけ受け付けて config.json に保存する
+                q = dict(urllib.parse.parse_qsl(self.path.partition("?")[2]))
+                key = q.get("key")
+                if key not in TOGGLES:
+                    self.send_response(400)
+                    self.end_headers()
+                    return
+                cfg[key] = q.get("value") == "1"
+                save_config(cfg)
+                log(f"設定を変更: {key} = {cfg[key]}")
+                return self._send(json.dumps(state.snapshot(), ensure_ascii=False))
             if p in ("/", "/overlay"):
                 return self._send((BASE / "overlay.html").read_text(encoding="utf-8"), "text/html")
             if p == "/dock":
@@ -649,6 +717,8 @@ def start_http(cfg, state):
                 state.reset_best()
             elif p == "/api/clear_history":
                 state.clear_history()
+            elif p == "/api/test_sound":
+                state.test_sound()
             else:
                 self.send_response(404)
                 self.end_headers()

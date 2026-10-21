@@ -68,6 +68,20 @@ function fighterBadge(x) {
   f.append(n);
   return f;
 }
+// 連勝が途切れたときの音。開いた直後の値は覚えるだけで鳴らさない (過去の分を鳴らさないため)
+let seenReset = null, seenTest = null, audio = null;
+function playSoundIfNeeded(snd) {
+  if (seenReset === null) { seenReset = snd.reset_seq; seenTest = snd.test_seq; return; }
+  const reset = snd.reset_seq !== seenReset && snd.enabled;
+  const test = snd.test_seq !== seenTest;
+  seenReset = snd.reset_seq; seenTest = snd.test_seq;
+  if ((reset || test) && snd.available) {
+    if (audio) audio.pause();
+    audio = new Audio('/sound?t=' + Date.now());
+    audio.volume = snd.volume;
+    audio.play().catch(() => {});
+  }
+}
 async function tick() {
   try {
     const s = await (await fetch('/api/state', { cache: 'no-store' })).json();
@@ -84,6 +98,9 @@ async function tick() {
         `<span class="rate">勝率${Math.round(r.wins / r.games * 100)}%</span>`
       : '直近の戦績 なし';
     document.getElementById('marks').innerHTML = [...s.marks].map(m => `<i class="${m}"></i>`).join('');
+    document.getElementById('recent').style.display = s.show_recent ? '' : 'none';
+    document.getElementById('marks').style.display = s.show_recent ? '' : 'none';
+    playSoundIfNeeded(s.sound);
     const nem = document.getElementById('nemesis');
     nem.style.display = s.show_nemesis && s.nemesis.length ? '' : 'none';
     const key = JSON.stringify(s.nemesis);
