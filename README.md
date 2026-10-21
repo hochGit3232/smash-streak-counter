@@ -10,6 +10,12 @@
 
 > 非公式のファンメイドツールです。任天堂株式会社とは関係ありません。
 
+## 導入方法（動画）
+
+導入の流れを約5分の動画で解説しています。文章で読むのが苦手な方はこちらをどうぞ。
+
+▶ **[YouTube で見る：連勝カウンター 導入ガイド](https://youtu.be/IbsMmo1xUeg)**
+
 ## ダウンロード
 
 **[こちらのリリースページ](https://github.com/hochGit3232/smash-streak-counter/releases/latest)** から最新版の `smash_streak_counter.zip` をダウンロードして、好きな場所に展開してください。
