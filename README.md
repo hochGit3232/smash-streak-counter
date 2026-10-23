@@ -24,8 +24,9 @@
 
 - Windows 10 / 11 と **Windows の日本語OCR**（日本語版 Windows なら通常は入っています。[入っていない場合](#日本語ocrが入っていない場合)）
 - OBS Studio 28 以降
-- [Python](https://www.python.org/downloads/) 3.10 以降  
-  ※インストール画面の最初で **「Add python.exe to PATH」に必ずチェック**
+- [Python](https://www.python.org/downloads/windows/) **3.14**（最新の **3.14.9 以降を推奨**）の「Windows installer (64-bit)」  
+  ※インストール画面の最初で **「Add python.exe to PATH」に必ずチェック**  
+  ※2026年10月に、Python に付属する pip のセキュリティ問題が修正されました。古い Python を使っている方は 3.14.9 以降に更新してください（更新後に `start.bat` を起動すると、部品の準備が自動でやり直されます）
 
 ## はじめての設定
 
@@ -112,6 +113,7 @@
 - **配信画面にカウンターが表示されない（空のまま）** → `start.bat` の黒い画面が開いているか確認。開いているのに出ない場合は、ブラウザソースのプロパティで「現在のページのキャッシュを更新」を押してください（`start.bat` より先に OBS を開くと、表示が空のまま止まることがあります）
 - **「日本語OCRが見つかりません」** → [下の手順](#日本語ocrが入っていない場合)で日本語OCRを追加してください
 - **黒い画面がすぐ消える / `SETUP FAILED`** → Python が入っていないか、PATH にチェックが入っていません
+- **Python を入れ直したら起動しなくなった** → `start.bat` を起動し直すと、自動で準備をやり直します（v1.2.1 以降）。古い版の場合はフォルダの `.venv` を削除してから起動してください
 - **「OBS接続エラー」が続く** → OBS の起動・WebSocket のオン・パスワードを確認
 - **「No source was found」** → `config.json` の `source_name` が OBS のソース名と違います
 - **判定ミス** → フォルダ内の `log.txt` に判定記録が残ります。`config.json` の `"debug": true` でより詳しく記録されます

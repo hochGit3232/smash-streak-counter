@@ -11,11 +11,21 @@ if errorlevel 1 (
   pause
   exit /b
 )
+rem Python was reinstalled or removed: the old .venv no longer works, so rebuild it
+if exist ".venv\Scripts\python.exe" (
+  ".venv\Scripts\python.exe" -c "import sys" >nul 2>nul
+  if errorlevel 1 (
+    echo .venv is broken - Python was probably reinstalled. Rebuilding it ...
+    rmdir /s /q .venv
+  )
+)
 if not exist ".venv\Scripts\python.exe" (
-  echo [1/2] Creating .venv ...
+  echo [1/3] Creating .venv ...
   python -m venv .venv
   if errorlevel 1 goto err
-  echo [2/2] Installing packages - this takes 1-2 minutes ...
+  echo [2/3] Updating pip ^(security fix^) ...
+  ".venv\Scripts\python.exe" -m pip install --upgrade pip
+  echo [3/3] Installing packages - this takes 1-2 minutes ...
   ".venv\Scripts\python.exe" -m pip install -r requirements.txt
   if errorlevel 1 goto err
 )

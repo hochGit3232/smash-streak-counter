@@ -22,8 +22,10 @@
     起動時に「日本語OCRが見つかりません」と出たときだけ、
     下の「日本語OCRの追加」を行ってください。
 ・OBS Studio 28 以降
-・Python 3.10 以降
-    https://www.python.org/downloads/
+・Python 3.14（最新の 3.14.9 以降を推奨）の Windows installer (64-bit)
+    https://www.python.org/downloads/windows/
+    ※2026年10月に、Python に付属する pip のセキュリティ問題が
+      修正されました。古い Python の方は 3.14.9 以降に更新してください。
     ※インストール画面の最初で「Add python.exe to PATH」に
       必ずチェックを入れてください
 
@@ -147,6 +149,9 @@ OBS のメニュー「ドック」→「カスタムブラウザドック」
 ・黒い画面がすぐ消える / SETUP FAILED と出る
     → Python が入っていないか、PATH にチェックが入っていません。
       Python を入れ直してください。
+
+・Python を入れ直したら起動しなくなった
+    → start.bat を起動し直すと、自動で準備をやり直します（v1.2.1 以降）。
 
 ・「OBS接続エラー」が出続ける
     → OBS が起動しているか、WebSocket がオンか、
